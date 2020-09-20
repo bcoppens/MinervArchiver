@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import logging
 import os
+from pathlib import Path
 
 from selenium import webdriver
 from selenium.webdriver.chrome.webdriver import WebDriver
@@ -46,9 +47,9 @@ def login(driver: WebDriver, username: str, password: str):
 
 
 def get_courses(driver: WebDriver) -> set:
-    driver.get("https://minerva.ugent.be/main/curriculum/index.php?year=2019")
+    driver.get("https://minerva.ugent.be/index.php")
     sleep = WebDriverWait(driver, 10)
-    sleep.until(lambda d: 'curriculum' in d.current_url)
+    sleep.until(lambda d: 'index.php' in d.current_url)
 
     # Get the courses.
     courses = set()
@@ -60,8 +61,15 @@ def get_courses(driver: WebDriver) -> set:
 
     return courses
 
+def get_clean_course_name(course: str, course_name: str):
+    course_name_clean = "".join(c for c in course_name if
+                                c.isalpha() or c.isdigit() or c == ' ').rstrip()
+    return f"{course[course.index('cidReq') + 7:]} - {course_name_clean.lower()}"
 
-def download(driver: WebDriver, course: str):
+def get_base_directory(course: str, course_name: str):
+    return os.path.join(out_dir, get_clean_course_name(course, course_name))
+
+def download_documents(driver: WebDriver, course: str):
     # Browse to the home directory.
     driver.get(course)
     sleep = WebDriverWait(driver, 10)
@@ -92,11 +100,15 @@ def download(driver: WebDriver, course: str):
             course_name = c.text
 
     # Find the file name.
-    course_name_clean = "".join(c for c in course_name if
-                                c.isalpha() or c.isdigit() or c == ' ').rstrip()
-    new_name = f"{course[course.index('cidReq') + 7:]} - {course_name_clean.lower()}.zip"
+    new_name = f"{get_clean_course_name(course, course_name)}.zip"
 
-    if os.path.exists(os.path.join(out_dir, new_name)):
+    new_path = os.path.join(get_base_directory(course, course_name), "documents")
+
+    Path(new_path).mkdir(parents=True, exist_ok=True)
+
+    new_file = os.path.join(new_path, new_name)
+
+    if os.path.exists(new_file):
         logging.info(f"Already exists {new_name}")
         return
 
@@ -115,7 +127,7 @@ def download(driver: WebDriver, course: str):
     sleep.until(lambda d: os.path.exists(out_file))
 
     # Rename the file.
-    os.rename(out_file, os.path.join(out_dir, new_name))
+    os.rename(out_file, new_file)
     logging.info(f"Saved {new_name}")
 
 
@@ -138,6 +150,7 @@ if __name__ == '__main__':
 
     options = webdriver.ChromeOptions()
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--no-sandbox")
     options.add_experimental_option('prefs', prefs)
 
     driver = webdriver.Chrome(executable_path="./chromedriver",
@@ -149,10 +162,10 @@ if __name__ == '__main__':
     logging.info("Getting courses...")
     courses = get_courses(driver)
 
-    logging.info(f"Found {len(courses)} courses.")
+    logging.info(f"Found {len(courses)} courses. (They are: {str(courses)})")
 
     for ci, course in enumerate(courses):
         logging.info(f"Downloading {ci + 1}/{len(courses)}")
-        download(driver, course)
+        download_documents(driver, course)
 
     logging.info("Done!")
